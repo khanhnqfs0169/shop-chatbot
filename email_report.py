@@ -44,22 +44,29 @@ def build_email_html(logs, summary, date_str):
 <p style="color:#aaa;font-size:12px;text-align:center">Email tu dong - {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
 </body></html>"""
 
-def send_order_notification(order_data, sender_id="", sender_name=""):
-    """Gui email ngay lap tuc khi co don hang moi (dung Resend API)."""
+def send_order_notification(order_data, sender_id="", sender_name="", previous_orders=None):
+    """Gui email ngay lap tuc khi co don hang moi (dung Resend API).
+    previous_orders: list cac don hang cu cua cung khach hang (neu co).
+    """
     if not RESEND_API_KEY or not REPORT_EMAIL_TO:
         print("Chua cau hinh RESEND_API_KEY hoac REPORT_EMAIL_TO -> bo qua.")
         return
-    now_str  = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    ten      = order_data.get("ten", sender_name or sender_id)
-    sdt      = order_data.get("sdt", "Chua cung cap")
-    facebook = order_data.get("facebook", "")
-    san_pham = order_data.get("san_pham", "")
-    size     = order_data.get("size", "")
-    mau      = order_data.get("mau", "")
-    so_luong = order_data.get("so_luong", "")
-    ngay_can = order_data.get("ngay_can", "Khong co")
-    dia_chi  = order_data.get("dia_chi", "")
+    if previous_orders is None:
+        previous_orders = []
 
+    now_str      = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    order_count  = len(previous_orders) + 1
+    ten          = order_data.get("ten", sender_name or sender_id)
+    sdt          = order_data.get("sdt", "Chua cung cap")
+    facebook     = order_data.get("facebook", "")
+    san_pham     = order_data.get("san_pham", "")
+    size         = order_data.get("size", "")
+    mau          = order_data.get("mau", "")
+    so_luong     = order_data.get("so_luong", "")
+    ngay_can     = order_data.get("ngay_can", "Khong co")
+    dia_chi      = order_data.get("dia_chi", "")
+
+    # --- Don moi ---
     rows_html = ""
     fields = [
         ("Ten khach", ten), ("So dien thoai", sdt), ("Facebook / ID", facebook or sender_id),
@@ -69,26 +76,55 @@ def send_order_notification(order_data, sender_id="", sender_name=""):
     for label, val in fields:
         rows_html += f"<tr><td style='padding:8px 12px;background:#f9f9f9;font-weight:bold;border-bottom:1px solid #eee;width:40%'>{label}</td><td style='padding:8px 12px;border-bottom:1px solid #eee'>{val}</td></tr>"
 
+    # --- Lich su don cu (neu co) ---
+    history_html = ""
+    if previous_orders:
+        history_html = f"""
+<div style="background:white;border:1px solid #e0e0e0;border-radius:8px;padding:16px;margin-top:16px">
+  <h3 style="margin:0 0 10px;color:#e53935;font-size:14px">Lich su dat hang truoc ({len(previous_orders)} don)</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;color:#555">
+    <tr style="background:#f5f5f5">
+      <th style="padding:6px 10px;text-align:left">Don</th>
+      <th style="padding:6px 10px;text-align:left">San pham</th>
+      <th style="padding:6px 10px;text-align:left">Size/Mau</th>
+      <th style="padding:6px 10px;text-align:left">SL</th>
+      <th style="padding:6px 10px;text-align:left">Dia chi</th>
+    </tr>"""
+        for i, prev in enumerate(previous_orders, 1):
+            history_html += f"""<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">#{i}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">{prev.get('san_pham','')}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">{prev.get('size','')} / {prev.get('mau','')}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">{prev.get('so_luong','')}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee">{prev.get('dia_chi','')}</td>
+    </tr>"""
+        history_html += "</table></div>"
+
+    header_color = "#e53935" if order_count == 1 else "#6a1adb"
+    label_don = f"Don hang #{order_count}" if order_count == 1 else f"Don hang #{order_count} (Khach quen)"
+
     html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-<div style="background:#e53935;color:white;padding:20px;border-radius:8px 8px 0 0">
-  <h2 style="margin:0">Don hang moi - {SHOP_NAME}</h2>
+<div style="background:{header_color};color:white;padding:20px;border-radius:8px 8px 0 0">
+  <h2 style="margin:0">{label_don} - {SHOP_NAME}</h2>
   <p style="margin:4px 0 0;opacity:.9">{now_str}</p>
 </div>
 <div style="background:white;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">
   <table style="width:100%;border-collapse:collapse;font-size:14px">{rows_html}</table>
 </div>
+{history_html}
 <p style="color:#aaa;font-size:12px;text-align:center;margin-top:16px">Email tu dong tu chatbot Facebook - {SHOP_NAME}</p>
 </body></html>"""
 
+    repeat_tag = "" if order_count == 1 else f" [DON #{order_count} - KHACH QUEN]"
     try:
         params = {
             "from": EMAIL_FROM,
             "to": [REPORT_EMAIL_TO],
-            "subject": f"[DON HANG MOI] {ten} - {san_pham} (x{so_luong}) - {SHOP_NAME}",
+            "subject": f"[DON HANG MOI{repeat_tag}] {ten} - {san_pham} (x{so_luong}) - {SHOP_NAME}",
             "html": html,
         }
         resend.Emails.send(params)
-        print(f"Da gui email don hang (Resend): {ten} - {san_pham}")
+        print(f"Da gui email don hang #{order_count} (Resend): {ten} - {san_pham}")
     except Exception as e:
         print(f"Loi gui email don hang: {e}")
 

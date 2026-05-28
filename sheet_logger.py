@@ -80,7 +80,7 @@ class SheetLogger:
             self._local_ws.append(row)
             self._local_wb.save(self.local_log_file)
 
-    def log_order(self, sender_id, order_data, sender_name=""):
+    def log_order(self, sender_id, order_data, sender_name="", order_count=1):
         """Ghi don hang vao sheet 'Don hang'. order_data la dict chua thong tin don."""
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         row = [
@@ -95,7 +95,7 @@ class SheetLogger:
             order_data.get("so_luong", ""),
             order_data.get("ngay_can", ""),
             order_data.get("dia_chi", ""),
-            "Moi",
+            f"Moi (Don #{order_count})",
         ]
         if self._order_sheet:
             try:

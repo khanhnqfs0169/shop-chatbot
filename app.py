@@ -43,6 +43,7 @@ threading.Thread(target=reload_products, daemon=True).start()
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 conversation_history = {}
+orders_history = {}   # {sender_id: [order1, order2, ...]}
 MAX_HISTORY = 10
 
 SYSTEM_PROMPT = """Ban la nhan vien tu van ban hang than thien cua {shop}.
@@ -177,17 +178,28 @@ def handle_message(sender_id, text):
             print(f"Loi ghi log: {e}")
         # --- Xu ly don hang moi ---
         if order_data:
-            print(f"[DON HANG MOI] sender={sender_id} ten={order_data.get('ten','?')}")
+            previous_orders = orders_history.get(sender_id, [])
+            order_count = len(previous_orders) + 1
+            print(f"[DON HANG MOI #{order_count}] sender={sender_id} ten={order_data.get('ten','?')}")
+            # Luu vao lich su don hang
+            orders_history.setdefault(sender_id, []).append(order_data)
+            # Reset lich su hoi thoai ve trang thai sau khi chot don
+            # Claude biet don cu da xong, san sang nhan don moi
+            conversation_history[sender_id] = [{
+                "role": "assistant",
+                "content": f"Da ghi nhan don hang #{order_count} cua ban thanh cong! Ban can ho tro them gi khong?"
+            }]
             try:
                 from sheet_logger import logger as _logger
-                _logger.log_order(sender_id=sender_id, order_data=order_data, sender_name=sender_name)
+                _logger.log_order(sender_id=sender_id, order_data=order_data,
+                                  sender_name=sender_name, order_count=order_count)
             except Exception as e:
                 print(f"Loi ghi don hang: {e}")
             try:
                 from email_report import send_order_notification
                 threading.Thread(
                     target=send_order_notification,
-                    args=(order_data, sender_id, sender_name),
+                    args=(order_data, sender_id, sender_name, previous_orders),
                     daemon=True
                 ).start()
             except Exception as e:
