@@ -45,6 +45,56 @@ def build_email_html(logs, summary, date_str):
 <p style="color:#aaa;font-size:12px;text-align:center">Email tu dong - {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
 </body></html>"""
 
+def send_order_notification(order_data, sender_id="", sender_name=""):
+    """Gui email ngay lap tuc khi co don hang moi."""
+    if not SMTP_USER or not REPORT_EMAIL_TO or not SMTP_PASSWORD:
+        print("Chua cau hinh SMTP -> khong gui duoc email don hang.")
+        return
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ten      = order_data.get("ten", sender_name or sender_id)
+    sdt      = order_data.get("sdt", "Chua cung cap")
+    facebook = order_data.get("facebook", "")
+    san_pham = order_data.get("san_pham", "")
+    size     = order_data.get("size", "")
+    mau      = order_data.get("mau", "")
+    so_luong = order_data.get("so_luong", "")
+    ngay_can = order_data.get("ngay_can", "Khong co")
+    dia_chi  = order_data.get("dia_chi", "")
+
+    rows_html = ""
+    fields = [
+        ("Ten khach", ten), ("So dien thoai", sdt), ("Facebook / ID", facebook or sender_id),
+        ("San pham", san_pham), ("Size", size), ("Mau", mau), ("So luong", so_luong),
+        ("Ngay can", ngay_can), ("Dia chi giao hang", dia_chi),
+    ]
+    for label, val in fields:
+        rows_html += f"<tr><td style='padding:8px 12px;background:#f9f9f9;font-weight:bold;border-bottom:1px solid #eee;width:40%'>{label}</td><td style='padding:8px 12px;border-bottom:1px solid #eee'>{val}</td></tr>"
+
+    html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<div style="background:#e53935;color:white;padding:20px;border-radius:8px 8px 0 0">
+  <h2 style="margin:0">🛍️ Don hang moi - {SHOP_NAME}</h2>
+  <p style="margin:4px 0 0;opacity:.9">{now_str}</p>
+</div>
+<div style="background:white;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">
+  <table style="width:100%;border-collapse:collapse;font-size:14px">{rows_html}</table>
+</div>
+<p style="color:#aaa;font-size:12px;text-align:center;margin-top:16px">Email tu dong tu chatbot Facebook - {SHOP_NAME}</p>
+</body></html>"""
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[DON HANG MOI] {ten} - {san_pham} (x{so_luong}) - {SHOP_NAME}"
+        msg["From"] = SMTP_USER
+        msg["To"] = REPORT_EMAIL_TO
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.ehlo(); server.starttls(); server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, REPORT_EMAIL_TO, msg.as_string())
+        print(f"Da gui email don hang: {ten} - {san_pham}")
+    except Exception as e:
+        print(f"Loi gui email don hang: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", action="store_true")

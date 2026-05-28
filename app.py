@@ -52,13 +52,29 @@ Su dung danh sach san pham duoi day de tra loi khach hang.
 {products}
 === HET DANH SACH ===
 
-Huong dan:
+Huong dan chung:
 - Tra loi ngan gon, than thien, bang tieng Viet
 - Cung cap day du thong tin size, mau, gia khi khach hoi san pham
 - Neu co gia sale: luon de cap ca gia goc va gia sale
 - Neu khong co thong tin: noi "De minh hoi lai shop nhe!"
-- Neu khach can tu van phuc tap (doi tra, khieu nai, dat so luong lon):
-  ket thuc tin nhan bang [CHUYEN_NHAN_VIEN]
+- Neu khach can tu van phuc tap (doi tra, khieu nai): ket thuc tin nhan bang [CHUYEN_NHAN_VIEN]
+
+Quy trinh dat hang (khi khach muon mua / chot don):
+1. Thu thap lan luot cac thong tin con thieu (khong hoi nhieu truong mot luc):
+   - Ten khach hang
+   - So dien thoai
+   - San pham, size, mau sac, so luong
+   - Ngay can giao (neu co)
+   - Dia chi nhan hang
+2. Khi da co DU TAT CA thong tin tren, xac nhan lai voi khach mot lan.
+3. Sau khi khach xac nhan, CHUYEN SANG DONG CUOI cua tin nhan them the sau (khong de lo ra ngoai):
+   [DAT_HANG:{{"ten":"<ten>","sdt":"<sdt>","facebook":"","san_pham":"<sp>","size":"<size>","mau":"<mau>","so_luong":"<sl>","ngay_can":"<ngay>","dia_chi":"<dc>"}}]
+   Va noi voi khach: "Shop da nhan don cua ban! Minh se lien he xac nhan trong thoi gian som nhat nhe!"
+
+Luu y quan trong:
+- Chi them the [DAT_HANG:...] khi khach DA XAC NHAN don hang
+- The [DAT_HANG:...] phai la JSON hop le, nam CUOI tin nhan
+- Khong bao gio them [DAT_HANG:...] neu chua du thong tin
 """
 
 def get_claude_reply(sender_id, user_message):
@@ -71,20 +87,34 @@ def get_claude_reply(sender_id, user_message):
         conversation_history[sender_id] = history
     try:
         response = client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=400,
+            model=CLAUDE_MODEL, max_tokens=600,
             system=SYSTEM_PROMPT.format(shop=SHOP_NAME, products=PRODUCTS_JSON),
             messages=history,
         )
         reply = response.content[0].text
+
+        # --- Parse [DAT_HANG:...] ---
+        order_data = None
+        import re
+        order_match = re.search(r'\[DAT_HANG:(\{.*?\})\]', reply, re.DOTALL)
+        if order_match:
+            try:
+                order_data = json.loads(order_match.group(1))
+            except Exception as e:
+                print(f"Loi parse don hang JSON: {e}")
+            reply = reply[:order_match.start()].strip()
+
+        # --- Parse [CHUYEN_NHAN_VIEN] ---
         escalate = "[CHUYEN_NHAN_VIEN]" in reply
         reply_clean = reply.replace("[CHUYEN_NHAN_VIEN]", "").strip()
         if escalate:
             reply_clean += "\n\nMinh se chuyen ban qua nhan vien ho tro truc tiep ngay nhe!"
+
         history.append({"role": "assistant", "content": reply_clean})
-        return reply_clean, escalate
+        return reply_clean, escalate, order_data
     except Exception as e:
         print(f"Loi Claude API: {e}")
-        return "Xin loi ban, he thong dang ban. Vui long nhan lai sau it phut!", False
+        return "Xin loi ban, he thong dang ban. Vui long nhan lai sau it phut!", False, None
 
 def send_fb_message(recipient_id, text):
     try:
@@ -136,14 +166,32 @@ def webhook_receive():
 
 def handle_message(sender_id, text):
     try:
-        reply, escalated = get_claude_reply(sender_id, text)
+        reply, escalated, order_data = get_claude_reply(sender_id, text)
         send_fb_message(sender_id, reply)
+        sender_name = get_sender_name(sender_id)
         try:
             from sheet_logger import logger
             logger.log(sender_id=sender_id, question=text, answer=reply,
-                      sender_name=get_sender_name(sender_id), escalated=escalated)
+                      sender_name=sender_name, escalated=escalated)
         except Exception as e:
             print(f"Loi ghi log: {e}")
+        # --- Xu ly don hang moi ---
+        if order_data:
+            print(f"[DON HANG MOI] sender={sender_id} ten={order_data.get('ten','?')}")
+            try:
+                from sheet_logger import logger as _logger
+                _logger.log_order(sender_id=sender_id, order_data=order_data, sender_name=sender_name)
+            except Exception as e:
+                print(f"Loi ghi don hang: {e}")
+            try:
+                from email_report import send_order_notification
+                threading.Thread(
+                    target=send_order_notification,
+                    args=(order_data, sender_id, sender_name),
+                    daemon=True
+                ).start()
+            except Exception as e:
+                print(f"Loi gui email don hang: {e}")
     except Exception as e:
         print(f"Loi xu ly tin nhan [{sender_id}]: {e}")
         send_fb_message(sender_id, "Xin loi, he thong gap su co. Vui long thu lai!")
