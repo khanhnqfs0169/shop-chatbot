@@ -1,17 +1,16 @@
-import os, sys, smtplib, argparse
+import os, sys, argparse
 from datetime import datetime
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import anthropic
+import resend
 from sheet_logger import logger
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-SMTP_HOST         = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT         = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER         = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD     = os.getenv("SMTP_PASSWORD", "")
+RESEND_API_KEY    = os.getenv("RESEND_API_KEY", "")
 REPORT_EMAIL_TO   = os.getenv("REPORT_EMAIL_TO", "")
 SHOP_NAME         = os.getenv("SHOP_NAME", "Shop thoi trang")
+
+resend.api_key = RESEND_API_KEY
+EMAIL_FROM = "Shop Chatbot <onboarding@resend.dev>"
 
 def summarize_with_claude(logs):
     if not logs:
@@ -46,11 +45,11 @@ def build_email_html(logs, summary, date_str):
 </body></html>"""
 
 def send_order_notification(order_data, sender_id="", sender_name=""):
-    """Gui email ngay lap tuc khi co don hang moi."""
-    if not SMTP_USER or not REPORT_EMAIL_TO or not SMTP_PASSWORD:
-        print("Chua cau hinh SMTP -> khong gui duoc email don hang.")
+    """Gui email ngay lap tuc khi co don hang moi (dung Resend API)."""
+    if not RESEND_API_KEY or not REPORT_EMAIL_TO:
+        print("Chua cau hinh RESEND_API_KEY hoac REPORT_EMAIL_TO -> bo qua.")
         return
-    now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    now_str  = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     ten      = order_data.get("ten", sender_name or sender_id)
     sdt      = order_data.get("sdt", "Chua cung cap")
     facebook = order_data.get("facebook", "")
@@ -72,7 +71,7 @@ def send_order_notification(order_data, sender_id="", sender_name=""):
 
     html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
 <div style="background:#e53935;color:white;padding:20px;border-radius:8px 8px 0 0">
-  <h2 style="margin:0">🛍️ Don hang moi - {SHOP_NAME}</h2>
+  <h2 style="margin:0">Don hang moi - {SHOP_NAME}</h2>
   <p style="margin:4px 0 0;opacity:.9">{now_str}</p>
 </div>
 <div style="background:white;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">
@@ -82,15 +81,14 @@ def send_order_notification(order_data, sender_id="", sender_name=""):
 </body></html>"""
 
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"[DON HANG MOI] {ten} - {san_pham} (x{so_luong}) - {SHOP_NAME}"
-        msg["From"] = SMTP_USER
-        msg["To"] = REPORT_EMAIL_TO
-        msg.attach(MIMEText(html, "html", "utf-8"))
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.ehlo(); server.starttls(); server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, REPORT_EMAIL_TO, msg.as_string())
-        print(f"Da gui email don hang: {ten} - {san_pham}")
+        params = {
+            "from": EMAIL_FROM,
+            "to": [REPORT_EMAIL_TO],
+            "subject": f"[DON HANG MOI] {ten} - {san_pham} (x{so_luong}) - {SHOP_NAME}",
+            "html": html,
+        }
+        resend.Emails.send(params)
+        print(f"Da gui email don hang (Resend): {ten} - {san_pham}")
     except Exception as e:
         print(f"Loi gui email don hang: {e}")
 
@@ -106,14 +104,13 @@ def main():
         print(f"\nBAO CAO NGAY {date_str} - {SHOP_NAME}\n{'='*50}\n{summary}\n{'='*50}")
         return
     html = build_email_html(logs, summary, date_str)
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[{SHOP_NAME}] Bao cao chatbot {date_str} - {len(logs)} hoi thoai"
-    msg["From"] = SMTP_USER
-    msg["To"] = REPORT_EMAIL_TO
-    msg.attach(MIMEText(html, "html", "utf-8"))
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.ehlo(); server.starttls(); server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, REPORT_EMAIL_TO, msg.as_string())
+    params = {
+        "from": EMAIL_FROM,
+        "to": [REPORT_EMAIL_TO],
+        "subject": f"[{SHOP_NAME}] Bao cao chatbot {date_str} - {len(logs)} hoi thoai",
+        "html": html,
+    }
+    resend.Emails.send(params)
     print(f"Da gui bao cao toi {REPORT_EMAIL_TO}")
 
 if __name__ == "__main__":
